@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Upload file to S3 using API Gateway and Lambda
+
+Resources:
+#---------------
+# S3
+#--------------
+  UploadBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub "upload-csv-${AWS::AccountId}"
+
+# ---------------------------
+# Lambda Function
+#----------------------------
+  UploadFileFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: 'assignment-upload-file-lambda-handler'
+      CodeUri: upload-file-handler
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref UploadBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref UploadBucket
+      Events:
+        UploadFileApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UploadApi
+            Path: /upload
+            Method: post
+
+  LambdaAuthFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: 'assignment-auth-lambda-handler'
+      CodeUri: auth-handler 
+      Handler:  index.handler
+      Runtime: nodejs18.x
+
+  ProcessCSVFileFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: 'assignment-process-csv-lambda-handler'
+      CodeUri: process-file-handler 
+      Handler:  index.handler
+      Runtime: nodejs18.x
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "upload-csv-${AWS::AccountId}"
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject* 
+              Resource: !Sub "arn:aws:s3:::upload-csv-${AWS::AccountId}/*"
+      Events:
+        S3Event:
+          Properties:
+            Bucket: !Ref UploadBucket              
+            Events: s3:ObjectCreated:*
+          Type: S3
+
+#---------------------
+# ApiGateway
+#---------------------
+  UploadApi:
+    Type: 'AWS::Serverless::Api'
+    Properties:
+      Name: assignment-upload-file-api-gateway
+      StageName: dev
+      Auth:
+        DefaultAuthorizer: ApiLambdaTokenAuthorizer
+        Authorizers:
+          ApiLambdaTokenAuthorizer:
+            FunctionArn: !GetAtt LambdaAuthFunction.Arn
+            Identity:
+              Headers:
+                - authorization
+
+Outputs:
+  ApiURL:
+    Description: 'API Gateway endpoint URL'
+    Value: !Sub 'https://${UploadApi}.execute-api.${AWS::Region}.amazonaws.com/dev/upload'  
