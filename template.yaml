@@ -10,6 +10,40 @@ Resources:
     Type: 'AWS::S3::Bucket'
     Properties:
       BucketName: !Sub "upload-csv-${AWS::AccountId}"
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:*
+            Queue: !GetAtt UploadFileQueue.Arn
+            
+
+#--------------------------
+# Queue
+#--------------------------
+  UploadFileQueue:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: "assignment-upload-file-queue"
+
+
+  UploadFileQueuePolicy:
+    Type: "AWS::SQS::QueuePolicy"
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: !Sub '${UploadFileQueue}-policy'
+        Statement:
+          - Sid: Allow-S3-SendMessage
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com            
+            Action:
+            - sqs:SendMessage
+            Resource: !GetAtt UploadFileQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:s3:::${UploadBucket}"
+      Queues:
+        - !Ref UploadFileQueue
 
 # ---------------------------
 # Lambda Function
@@ -43,7 +77,7 @@ Resources:
       Handler:  index.handler
       Runtime: nodejs18.x
 
-  ProcessCSVFileFunction:
+  PollQueueAndProcessCSVFileFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
       FunctionName: 'assignment-process-csv-lambda-handler'
@@ -57,14 +91,24 @@ Resources:
         - Version: 2012-10-17
           Statement:
             - Effect: Allow
+              Action: sqs:* 
+              Resource: !Sub "arn:aws:sqs:::${UploadFileQueue}"
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
               Action: s3:GetObject* 
               Resource: !Sub "arn:aws:s3:::upload-csv-${AWS::AccountId}/*"
       Events:
-        S3Event:
+        SqsTrigger:
+          Type: SQS
           Properties:
-            Bucket: !Ref UploadBucket              
-            Events: s3:ObjectCreated:*
-          Type: S3
+            Queue: !GetAtt UploadFileQueue.Arn              
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 30
+            Enabled: True
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+          
 
 #---------------------
 # ApiGateway

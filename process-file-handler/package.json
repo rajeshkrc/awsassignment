@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-lambda-powertools/batch": "^2.1.0",
     "aws-sdk": "^2.1612.0"
   }
 }
